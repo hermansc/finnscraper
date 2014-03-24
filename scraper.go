@@ -45,6 +45,12 @@ func main() {
     // Find all results on the HTML page.
     results := doc.Find("div[data-automation-id='adList']")
     results.ChildrenFiltered("a").EachWithBreak(func(i int, s *goquery.Selection) bool {
+
+      // If it is a promoted ad, we ignore it.
+      if (s.HasClass("bg-promoted")) {
+        return true
+      }
+
       finncode, _ := s.Attr("id")
       if _, ok := seen[finncode]; !ok {
         // Construct a devent ad header.
