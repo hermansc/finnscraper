@@ -40,7 +40,11 @@ func main() {
 
     // Open the provided URL.
     doc, err := goquery.NewDocument(*url)
-    if (err != nil) { log.Println(err.Error()) }
+    if (err != nil) {
+      log.Println(err.Error())
+      time.Sleep(time.Duration(*interval) * time.Minute)
+      continue
+    }
 
     // Find all results on the HTML page.
     results := doc.Find("div[data-automation-id='adList']")
