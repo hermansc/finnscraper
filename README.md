@@ -42,10 +42,17 @@ Then use this PID to send SIGHUP:
 ## Building and installing
 
 You need Go. Instructions for building and installing are [found
-here](http://golang.org/doc/install).
+here](http://golang.org/doc/install). You will need Go >= 1.1.
+Please check [this
+guide](http://www.extellisys.com/articles/golang-on-debian-wheezy) if your OS
+does not provide this version.
 
-Then you build the binary by:
+Then you build the binary by first getting the dependencies:
 
-    go build scraper.go
+    $ go get
+
+And then building the project:
+
+    $ go build scraper.go
 
 Done!
