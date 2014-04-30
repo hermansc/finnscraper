@@ -1,0 +1,5 @@
+# Ignore the configuration file.
+*.conf
+
+# Ignore the binary
+finnscraper

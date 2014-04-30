@@ -1,111 +1,270 @@
 package main
 
 import (
-  "fmt"
-  "github.com/PuerkitoBio/goquery"
-  "log"
-  "strings"
-  "flag"
-  "time"
-  "os"
-  "net/smtp"
+	"errors"
+	"fmt"
+	"github.com/PuerkitoBio/goquery"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"net/smtp"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
 )
 
+type Config struct {
+	Url       string
+	Interval  int
+	ToEmail   string
+	FromEmail string
+	UserAgent string
+	Debug     bool
+	FirstRun  bool
+}
+
+var config Config
+var configLocation string
+var seen map[string]bool
+
 func printHelp() {
-  fmt.Fprintf(os.Stderr, "Usage of %v:\n", os.Args[0])
-  flag.PrintDefaults()
+	fmt.Fprintf(os.Stderr, "Specify config-file:\n%s scraper.conf\n", os.Args[0])
+}
+
+func loadConfig(filename string) error {
+	f, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(f), "\n")
+
+	// Some naive checks.
+	if len(lines) < 2 {
+		errors.New("Please check your configuration file. It looks to short.")
+	}
+
+	for _, line := range lines {
+		// Ignore comments
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		params := strings.Split(line, " ")
+
+		// Read the URL
+		if params[0] == "url" {
+			config.Url = params[1]
+		}
+
+		// Read the interval.
+		if params[0] == "interval" {
+			interval, err := strconv.Atoi(params[1])
+			if err != nil {
+				return err
+			}
+			config.Interval = interval
+		}
+
+		// Read the mails
+		if params[0] == "tomail" {
+			config.ToEmail = params[1]
+		}
+		if params[0] == "frommail" {
+			config.FromEmail = params[1]
+		}
+
+		if params[0] == "useragent" {
+			config.UserAgent = params[1]
+		}
+
+		// Read the debug-param
+		if params[0] == "debug" {
+			debug, err := strconv.ParseBool(params[1])
+			if err != nil {
+				return err
+			}
+			config.Debug = debug
+		}
+	}
+
+	// We just loaded a presumably new config. So we start a new run.
+	config.FirstRun = true
+
+	// Check that the config is OK.
+	if config.ToEmail == "" || config.FromEmail == "" || config.Url == "" {
+		return errors.New("Invalid configuration. You need to provide To/From-emails and Url")
+	}
+	if config.Interval < 1 {
+		return errors.New("Interval is to small. Set 'interval' to a value larger than zero")
+	}
+	if config.UserAgent == "" {
+		config.UserAgent = "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0"
+	}
+
+	// Everything is OK.
+	return nil
+}
+
+func handleSignals() {
+	// Make chan listening for signals, and redirect all signals to this chan.
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+
+	// Anonymous go-thread listening for syscalls.
+	go func() {
+		for sig := range c {
+			if sig == syscall.SIGHUP {
+				// Reload the config.
+				err := loadConfig(configLocation)
+				if err != nil {
+					log.Println(err.Error())
+				}
+				log.Println("Loaded new config after SIGHUP")
+				// Run a check, right away.
+				err = checkFinn()
+				if err != nil {
+					log.Println(err.Error())
+				}
+			}
+		}
+	}()
+}
+
+func sendMail(to, from, content string) error {
+	err := smtp.SendMail("localhost:25",
+		nil,
+		from,
+		[]string{to},
+		[]byte(content))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func getMailContent(ads []string) string {
+	subject := fmt.Sprintf("Subject: Found %d new matches on finn.no\r\n", len(ads))
+
+	body := fmt.Sprintf("The search on the following URL:\n\n%v", config.Url)
+	body += fmt.Sprintf("\n\nYielded %d new results:\n\n", len(ads))
+
+	// Loop through all matches, and add to content.
+	for _, ad := range ads {
+		body = body + fmt.Sprintf("%v", ad)
+	}
+	body = body + "\nRegards,\n- The awesome FINN.no scraper <3"
+	content := subject + body
+	return content
+}
+
+func checkFinn() error {
+	if config.Debug {
+		log.Println("Checking provided URL...")
+	}
+
+	// For saving the non-seen new ads.
+	newAds := make([]string, 0)
+
+	// Open the provided URL.
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", config.Url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", config.UserAgent)
+	resp, err := client.Do(req)
+	doc, err := goquery.NewDocumentFromResponse(resp)
+	if err != nil {
+		return err
+	}
+
+	// Find all results on the HTML page.
+	results := doc.Find("div[data-automation-id='adList']")
+	results.ChildrenFiltered("a").EachWithBreak(func(i int, s *goquery.Selection) bool {
+
+		// If it is a promoted ad, we ignore it.
+		if s.HasClass("bg-promoted") {
+			return true
+		}
+
+		finncode, _ := s.Attr("id")
+		if _, ok := seen[finncode]; !ok {
+			// Construct a devent ad header.
+			title := strings.TrimSpace(s.Find("div[data-automation-id='titleRow']").Text())
+			price := strings.TrimSpace(s.Find("span[data-automation-id='bodyRow']").Text())
+			if price == "" {
+				price = "0,-"
+			}
+			finn_url := "www.finn.no/finn/finncode/result?finncode="
+			adHeader := fmt.Sprintf("%v (%v) - %v%v\n", title, price, finn_url, finncode)
+
+			// Add the ad to our data structures, saving it.
+			newAds = append(newAds, adHeader)
+			seen[finncode] = true
+
+			// We assume there are no more than 5 new ads in one interval.
+			if i+1 == 5 && !(config.FirstRun) {
+				return false
+			}
+		}
+		return true
+	})
+
+	// We've found new ads, send them to the designated e-mail.
+	if len(newAds) > 0 && !(config.FirstRun) {
+		to := fmt.Sprintf("To: %s\r\n", config.ToEmail)
+		from := fmt.Sprintf("From: %v\r\n", config.FromEmail)
+		content := getMailContent(newAds)
+
+		// Send the actual email.
+		err := sendMail(to, from, to+from+content)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("Found %d new ads! Sent e-mail to %v!\n", len(newAds), config.ToEmail)
+	}
+
+	// Now we indicate we are only looking for new ads
+	if config.FirstRun {
+		fmt.Printf("Added %d ads to my memory. Looking for new ads every %v minutes and sending them to %v.\n",
+			len(seen), config.Interval, config.ToEmail)
+		config.FirstRun = false
+	}
+
+	return nil
 }
 
 func main() {
-  var url = flag.String("url", "", "URL to scrape for Finncodes")
-  var interval = flag.Int("interval", 30, "Time between each check")
-  var toemail = flag.String("email", "", "Email to send reports")
-  var fromemail = flag.String("from", "", "Email to send reports")
-  var debug = flag.Bool("debug", false, "Enable some extra debug messages")
-  flag.Parse()
+	if len(os.Args) < 2 {
+		// Ensure we have a config file.
+		printHelp()
+		os.Exit(2)
+	}
+	err := loadConfig(os.Args[1])
+	if err != nil {
+		log.Println(err.Error())
+	}
+	// Save the location of the file, in order to reference it in a HUP-call.
+	configLocation = os.Args[1]
 
-  if (*url == "" || *toemail == "" || *fromemail == "") {
-    printHelp()
-    os.Exit(2)
-  }
+	// Listen for signals (SIGHUP)
+	handleSignals()
 
-  firstRun := true
-  seen := make(map[string]bool)
+	// Create map, so it is not nil.
+	seen = make(map[string]bool)
 
-  for {
-    if (*debug) { fmt.Println("[DEBUG] Checking provided URL...") }
+	for {
+		// Check and report if any new ads are found.
+		err := checkFinn()
+		if err != nil {
+			log.Println(err.Error())
+		}
 
-    // For saving the non-seen new ads.
-    newAds := make([]string, 0)
-
-    // Open the provided URL.
-    doc, err := goquery.NewDocument(*url)
-    if (err != nil) {
-      log.Println(err.Error())
-      time.Sleep(time.Duration(*interval) * time.Minute)
-      continue
-    }
-
-    // Find all results on the HTML page.
-    results := doc.Find("div[data-automation-id='adList']")
-    results.ChildrenFiltered("a").EachWithBreak(func(i int, s *goquery.Selection) bool {
-
-      // If it is a promoted ad, we ignore it.
-      if (s.HasClass("bg-promoted")) {
-        return true
-      }
-
-      finncode, _ := s.Attr("id")
-      if _, ok := seen[finncode]; !ok {
-        // Construct a devent ad header.
-        title := strings.TrimSpace(s.Find("div[data-automation-id='titleRow']").Text())
-        price := strings.TrimSpace(s.Find("span[data-automation-id='bodyRow']").Text())
-        if (price == "") { price = "0,-" }
-        finn_url := "www.finn.no/finn/finncode/result?finncode="
-        adHeader := fmt.Sprintf("%v (%v) - %v%v\n", title, price, finn_url, finncode)
-
-        // Add the ad to our data structures, saving it.
-        newAds = append(newAds, adHeader)
-        seen[finncode] = true
-
-        // We assume there are no more than 5 new ads in one interval.
-        if (i+1 == 5 && !firstRun) {
-          return false
-        }
-      }
-      return true
-    })
-
-    // We've found new ads, send them to the designated e-mail.
-    if (len(newAds) > 0 && !firstRun) {
-      to := fmt.Sprintf("To: %s\r\n", *toemail)
-      from := fmt.Sprintf("From: %v\r\n", *fromemail)
-      subject := fmt.Sprintf("Subject: Found %d new matches on finn.no\r\n", len(newAds))
-      head := to + from + subject + "\r\n"
-
-      body := fmt.Sprintf("The search on the following URL:\n\n%v\n\nYielded %d new results:\n\n", *url, len(newAds))
-      for _, ad := range newAds {
-        body = body + fmt.Sprintf("%v", ad)
-      }
-      body = body + "\nSincerely yours,\n- The awesome FINN.no scraper <3"
-
-      err := smtp.SendMail("localhost:25",
-        nil,
-        *fromemail,
-        []string{*toemail},
-        []byte(head+body))
-      if err != nil { log.Println(err.Error()) }
-      fmt.Printf("[INFO] Found %d new ads! Sent e-mail to %v!\n", len(newAds), *toemail)
-    }
-
-    // Now we indicate we are only looking for new ads
-    if (firstRun) {
-      fmt.Printf("[INFO] Added %d ads to my memory. Looking for new ads every %v minutes and sending them to %v.\n", 
-                  len(seen), *interval, *toemail)
-      firstRun = false
-    }
-
-    // Check at given interval
-    time.Sleep(time.Duration(*interval) * time.Minute)
-  }
+		// Check at given interval
+		time.Sleep(time.Duration(config.Interval) * time.Minute)
+	}
 }
