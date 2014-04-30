@@ -18,10 +18,26 @@ Second: A provided URL should include `search.html`, e.g.
 
 Which is a search for all computers, less than 10 000 NOK.
 
-Now we instruct the scraper to check every 30 minutes and notify us at
-`user@gmail.com`:
+Copy the `scraper.conf.sample` and add your own parameters. It should be pretty
+self explanatory.
 
-    ./scraper -email="user@gmail.com" -from="me@servername.com" -interval=30 -url="http://m.finn.no/bap/forsale/search.html?price_to=10000&sub_category=3215"
+Start the script by:
+
+    $ ./finnscraper scraper.conf
+
+## Updating the configuration / Using SIGHUP
+
+If you update the config-file, you don't need to stop the script. You can just
+use the PID and reload it by sending the SIGHUP signal.
+
+First find the PID:
+
+    $ pidof finnscraper
+    1692
+
+Then use this PID to send SIGHUP:
+
+    $ kill -HUP 1692
 
 ## Building and installing
 
@@ -30,6 +46,6 @@ here](http://golang.org/doc/install).
 
 Then you build the binary by:
 
-    go build scraper.go -o scraper
+    go build scraper.go
 
 Done!
