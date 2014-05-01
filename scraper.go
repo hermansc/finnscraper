@@ -100,7 +100,7 @@ func loadConfig(filename string) error {
 	}
 
 	// We just loaded a presumably new config. So we start a new run.
-	config.FirstRun = false
+	config.FirstRun = true
 
 	// Check that the config is OK.
 	if config.ToEmail == "" || config.FromEmail == "" || config.Url == "" {
@@ -252,13 +252,12 @@ func checkFinn() error {
 		if err != nil {
 			log.Println(err.Error())
 		}
-		fmt.Printf(to + from + content)
 
 		// Send the actual email.
-		// err = sendMail(to, from, to+from+content)
-		// if err != nil {
-		// 	return err
-		// }
+		err = sendMail(to, from, to+from+content)
+		if err != nil {
+			return err
+		}
 
 		log.Printf("Found %d new ads! Sent e-mail to %v!\n", len(newAds), config.ToEmail)
 	}
