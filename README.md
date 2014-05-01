@@ -14,7 +14,7 @@ First: Use the **mobile site** provided by finn.no.
 
 Second: A provided URL should include `search.html`, e.g.
 
-    http://m.finn.no/bap/forsale/search.html?price_to=10000&sub_category=3215
+    http://m.finn.no/bap/forsale/search.html?price_to=10000&sub_category=1.93.3215
 
 Which is a search for all computers, less than 10 000 NOK.
 
