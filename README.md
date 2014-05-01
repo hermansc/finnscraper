@@ -8,6 +8,14 @@ This is better than the exisiting "Saved searches", provided by Finn - as it
 can check and notify you as often as every minute, but perhaps more
 practically: every 30 or 60 minutes.
 
+List of features:
+
+* Set scraping interval to be as low as 1 minute.
+* Search **multiple URLs**.
+* Reload configuration without interrupting or re-building the binary.
+* Set your custom User-Agent string.
+* Define a custom template, in your own language and phrasing.
+
 ## Getting started
 
 First: Use the **mobile site** provided by finn.no.
