@@ -11,6 +11,7 @@ import (
 	"net/smtp"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -120,6 +121,12 @@ func loadConfig(filename string) error {
 	_, err = parseTemplate(config.Template, nil)
 	if err != nil {
 		log.Fatal(err.Error())
+	}
+
+	// Ensure that the URL looks good.
+	re := regexp.MustCompile("^(http://)?(m.finn.no)(/.+/)+search.html(.*)$")
+	if !(re.Match([]byte(config.Url))) {
+		log.Fatal("Your URL is in a format invalid format. Are you using the mobile site? Check the documentation.")
 	}
 
 	// Everything is OK.
