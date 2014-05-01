@@ -1,7 +1,3 @@
-# The URL we want to scrape. Should be a mobile link to finn.no
-# url http://m.finn.no/bap/forsale/search.html
-url http://m.finn.no/bap/forsale/search.html?price_to=6000&sub_category=1.93.3215
-
 # The number of minutes between each request.
 interval 1
 
@@ -9,7 +5,7 @@ interval 1
 tomail foo@mailinator.com
 
 # The mail to send from.
-frommail foo@domain.com
+frommail hermansc@samfundet.no
 
 # The template we use for e-mail content
 template default.tmpl
@@ -18,4 +14,11 @@ template default.tmpl
 # useragent Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14
 
 # Enable som (useful) debug messages.
-debug false
+debug true
+
+#
+# The URLs we want to scrape. Should be a mobile link to finn.no
+#
+# url http://m.finn.no/bap/forsale/search.html?price_to=6000&sub_category=1.93.3215
+url http://m.finn.no/bap/forsale/search.html
+
