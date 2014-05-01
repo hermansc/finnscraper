@@ -112,7 +112,7 @@ func loadConfig(filename string) error {
 	}
 
 	// We just loaded a presumably new config. So we start a new run.
-	config.FirstRun = false
+	config.FirstRun = true
 
 	// Create map of all seen ads, so it is not nil (and we reset in case HUP)
 	seen = make(map[string][]string)
