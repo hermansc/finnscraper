@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"text/template"
 	"time"
 )
 
@@ -22,6 +24,7 @@ type Config struct {
 	ToEmail   string
 	FromEmail string
 	UserAgent string
+	Template  string
 	Debug     bool
 	FirstRun  bool
 }
@@ -76,8 +79,14 @@ func loadConfig(filename string) error {
 			config.FromEmail = params[1]
 		}
 
+		// Check if useragent is defined.
 		if params[0] == "useragent" {
 			config.UserAgent = params[1]
+		}
+
+		// Check if we have defined our own template.
+		if params[0] == "template" {
+			config.Template = params[1]
 		}
 
 		// Read the debug-param
@@ -91,7 +100,7 @@ func loadConfig(filename string) error {
 	}
 
 	// We just loaded a presumably new config. So we start a new run.
-	config.FirstRun = true
+	config.FirstRun = false
 
 	// Check that the config is OK.
 	if config.ToEmail == "" || config.FromEmail == "" || config.Url == "" {
@@ -102,6 +111,15 @@ func loadConfig(filename string) error {
 	}
 	if config.UserAgent == "" {
 		config.UserAgent = "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0"
+	}
+	if config.Template == "" {
+		config.Template = "default.tmpl"
+	}
+
+	// Check that the template is parsable.
+	_, err = parseTemplate(config.Template, nil)
+	if err != nil {
+		log.Fatal(err.Error())
 	}
 
 	// Everything is OK.
@@ -145,19 +163,32 @@ func sendMail(to, from, content string) error {
 	return nil
 }
 
-func getMailContent(ads []string) string {
-	subject := fmt.Sprintf("Subject: Found %d new matches on finn.no\r\n", len(ads))
+func getMailContent(ads []string) (string, error) {
+	// Add the strings of all ads on the dict sent to the template.
+	d := make(map[string]interface{})
+	d["Ads"] = strings.TrimRight(strings.Join(ads, ""), "\n\r")
+	d["NumResults"] = len(ads)
+	d["SearchURL"] = config.Url
 
-	body := fmt.Sprintf("The search on the following URL:\n\n%v", config.Url)
-	body += fmt.Sprintf("\n\nYielded %d new results:\n\n", len(ads))
-
-	// Loop through all matches, and add to content.
-	for _, ad := range ads {
-		body = body + fmt.Sprintf("%v", ad)
+	content, err := parseTemplate(config.Template, d)
+	if err != nil {
+		return content, err
 	}
-	body = body + "\nRegards,\n- The awesome FINN.no scraper <3"
-	content := subject + body
-	return content
+
+	return content, nil
+}
+
+func parseTemplate(filename string, data interface{}) (string, error) {
+	var buf bytes.Buffer
+	t, err := template.ParseFiles(filename)
+	if err != nil {
+		return buf.String(), err
+	}
+	err = t.Execute(&buf, data)
+	if err != nil {
+		return buf.String(), err
+	}
+	return buf.String(), nil
 }
 
 func checkFinn() error {
@@ -217,13 +248,17 @@ func checkFinn() error {
 	if len(newAds) > 0 && !(config.FirstRun) {
 		to := fmt.Sprintf("To: %s\r\n", config.ToEmail)
 		from := fmt.Sprintf("From: %v\r\n", config.FromEmail)
-		content := getMailContent(newAds)
+		content, err := getMailContent(newAds)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		fmt.Printf(to + from + content)
 
 		// Send the actual email.
-		err := sendMail(to, from, to+from+content)
-		if err != nil {
-			return err
-		}
+		// err = sendMail(to, from, to+from+content)
+		// if err != nil {
+		// 	return err
+		// }
 
 		log.Printf("Found %d new ads! Sent e-mail to %v!\n", len(newAds), config.ToEmail)
 	}
@@ -254,7 +289,7 @@ func main() {
 	// Listen for signals (SIGHUP)
 	handleSignals()
 
-	// Create map, so it is not nil.
+	// Create map of all seen ads, so it is not nil.
 	seen = make(map[string]bool)
 
 	for {

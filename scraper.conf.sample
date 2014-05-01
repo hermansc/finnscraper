@@ -11,6 +11,9 @@ tomail foo@mailinator.com
 # The mail to send from.
 frommail foo@domain.com
 
+# The template we use for e-mail content
+template default.tmpl
+
 # Use a custom user agent in your request. Default is Firefox 31.0
 # useragent Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14
 
