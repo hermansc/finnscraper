@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
-	"io/ioutil"
+	"github.com/itkinside/itkconfig"
 	"log"
 	"math/rand"
 	"net/http"
@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
@@ -21,7 +20,7 @@ import (
 )
 
 type Config struct {
-	Urls      []string
+	Url       []string
 	Interval  int
 	ToEmail   string
 	FromEmail string
@@ -31,7 +30,7 @@ type Config struct {
 	FirstRun  bool
 }
 
-var config Config
+var config *Config
 var configLocation string
 var seen map[string][]string
 
@@ -40,95 +39,33 @@ func printHelp() {
 }
 
 func loadConfig(filename string) error {
-	// Ensure the config is empty (and reset)
-	config = Config{}
+	// We start with a default config, and edit it based on config file.
+	config = &Config{
+		Url:       []string{},
+		Interval:  30,
+		ToEmail:   "user@example.com",
+		FromEmail: "root@localhost",
+		UserAgent: "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0",
+		Template:  "default.tmpl",
+		Debug:     false,
+		FirstRun:  true,
+	}
 
-	f, err := ioutil.ReadFile(filename)
+	// Load config from file, overwriting defaults.
+	err := itkconfig.LoadConfig(filename, config)
 	if err != nil {
 		return err
 	}
-	lines := strings.Split(string(f), "\n")
-
-	// Some naive checks.
-	if len(lines) < 2 {
-		errors.New("Please check your configuration file. It looks to short.")
-	}
-
-	for _, line := range lines {
-		// Ignore empty lines
-		if len(line) == 0 {
-			continue
-		}
-
-		// Ignore comments
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		params := strings.Split(line, " ")
-		key := strings.TrimSpace(params[0])
-		value := strings.TrimSpace(params[1])
-
-		// Read the URL
-		if key == "url" {
-			config.Urls = append(config.Urls, value)
-		}
-
-		// Read the interval.
-		if key == "interval" {
-			interval, err := strconv.Atoi(value)
-			if err != nil {
-				return err
-			}
-			config.Interval = interval
-		}
-
-		// Read the mails
-		if key == "tomail" {
-			config.ToEmail = value
-		}
-		if key == "frommail" {
-			config.FromEmail = value
-		}
-
-		// Check if useragent is defined.
-		if key == "useragent" {
-			config.UserAgent = value
-		}
-
-		// Check if we have defined our own template.
-		if key == "template" {
-			config.Template = value
-		}
-
-		// Read the debug-param
-		if key == "debug" {
-			debug, err := strconv.ParseBool(value)
-			if err != nil {
-				return err
-			}
-			config.Debug = debug
-		}
-	}
-
-	// We just loaded a presumably new config. So we start a new run.
-	config.FirstRun = true
 
 	// Create map of all seen ads, so it is not nil (and we reset in case HUP)
 	seen = make(map[string][]string)
 
 	// Check that the config is OK.
-	if config.ToEmail == "" || config.FromEmail == "" || config.Urls == nil {
+	if config.ToEmail == "" || config.FromEmail == "" || config.Url == nil {
 		return errors.New("Invalid configuration. You need to provide To/From-emails and Url")
 	}
 	if config.Interval < 1 {
 		return errors.New("Interval is to small. Set 'interval' to a value larger than zero")
-	}
-	if config.UserAgent == "" {
-		config.UserAgent = "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0"
-	}
-	if config.Template == "" {
-		config.Template = "default.tmpl"
 	}
 
 	// Check that the template is parsable.
@@ -139,7 +76,7 @@ func loadConfig(filename string) error {
 
 	// Ensure that the URL looks good.
 	re := regexp.MustCompile("^(http://)?(m.finn.no)(/.+/)+search.html(.*)$")
-	for _, url := range config.Urls {
+	for _, url := range config.Url {
 		if !(re.Match([]byte(url))) {
 			log.Fatal("Your URL '" + url + `' is in a format invalid format.
 			Are you using the mobile site? Check the documentation.`)
@@ -162,14 +99,14 @@ func handleSignals() {
 				// Reload the config.
 				err := loadConfig(configLocation)
 				if err != nil {
-					log.Println(err.Error())
+					log.Fatal(err)
 				}
 				log.Println("Loaded new config after SIGHUP")
 
 				// Run a check, right away.
 				err = checkAllUrls()
 				if err != nil {
-					log.Println(err.Error())
+					log.Println(err)
 				}
 			}
 		}
@@ -251,7 +188,7 @@ func parseTemplate(filename string, data interface{}) (string, error) {
 
 func checkAllUrls() error {
 	// Check all URLs found in the config file.
-	for _, url := range config.Urls {
+	for _, url := range config.Url {
 		err := checkFinn(url)
 		if err != nil {
 			log.Fatalln(err.Error())
@@ -270,6 +207,18 @@ func checkAllUrls() error {
 	return nil
 }
 
+func getURL(url string, useragent string) (*goquery.Document, error) {
+	var doc *goquery.Document
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return doc, err
+	}
+	req.Header.Set("User-Agent", useragent)
+	resp, err := client.Do(req)
+	return goquery.NewDocumentFromResponse(resp)
+}
+
 func checkFinn(url string) error {
 	if config.Debug {
 		log.Println("Checking " + url)
@@ -279,14 +228,7 @@ func checkFinn(url string) error {
 	newAds := make([]string, 0)
 
 	// Open the provided URL.
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", config.UserAgent)
-	resp, err := client.Do(req)
-	doc, err := goquery.NewDocumentFromResponse(resp)
+	doc, err := getURL(url, config.UserAgent)
 	if err != nil {
 		return err
 	}
@@ -341,8 +283,10 @@ func checkFinn(url string) error {
 		log.Printf("Found %d new ads! Sent e-mail to %v!\n", len(newAds), config.ToEmail)
 	}
 	if config.FirstRun {
-		fmt.Printf("Added %d ads to my memory. Looking for new ads every %v minutes and sending them to %v.\n",
-			len(seen[url]), config.Interval, config.ToEmail)
+		s := fmt.Sprintf("Added %d ads to my memory. ", len(seen[url]))
+		s += fmt.Sprintf("Looking for new ads every %v minutes and sending them to %v.\n",
+			config.Interval, config.ToEmail)
+		fmt.Printf(s)
 	}
 
 	return nil
@@ -354,12 +298,13 @@ func main() {
 		printHelp()
 		os.Exit(2)
 	}
-	err := loadConfig(os.Args[1])
-	if err != nil {
-		log.Println(err.Error())
-	}
 	// Save the location of the file, in order to reference it in a HUP-call.
 	configLocation = os.Args[1]
+
+	err := loadConfig(configLocation)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Listen for signals (SIGHUP)
 	handleSignals()
@@ -368,7 +313,7 @@ func main() {
 		// Check and report if any new ads are found.
 		err := checkAllUrls()
 		if err != nil {
-			log.Println(err.Error())
+			log.Println(err)
 		}
 
 		// Check at given interval

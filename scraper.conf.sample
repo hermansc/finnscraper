@@ -1,24 +1,21 @@
 # The number of minutes between each request.
-interval 1
+Interval = 1
 
 # The email you want to recieve the notifications on.
-tomail foo@mailinator.com
+ToEmail = "foo@mailinator.com"
 
 # The mail to send from.
-frommail hermansc@samfundet.no
+FromEmail = "foo@domain.com"
 
 # The template we use for e-mail content
-template default.tmpl
+Template = "default.tmpl"
 
 # Use a custom user agent in your request. Default is Firefox 31.0
-# useragent Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14
+# Useragent = "Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14"
 
 # Enable som (useful) debug messages.
-debug true
+Debug = false
 
-#
 # The URLs we want to scrape. Should be a mobile link to finn.no
-#
-# url http://m.finn.no/bap/forsale/search.html?price_to=6000&sub_category=1.93.3215
-url http://m.finn.no/bap/forsale/search.html
-
+Url = "http://m.finn.no/bap/forsale/search.html"
+Url = "http://m.finn.no/bap/forsale/search.html?price_to=6000&sub_category=1.93.3215"
