@@ -245,7 +245,7 @@ func checkFinn(url string) error {
 		finncode, _ := s.Attr("id")
 		if ok := stringInSlice(finncode, seen[url]); !ok {
 			// Construct a devent ad header.
-			title := strings.TrimSpace(s.Find("div[data-automation-id='titleRow']").Text())
+			title := strings.TrimSpace(s.Find("h2[data-automation-id='titleRow']").Text())
 			price := strings.TrimSpace(s.Find("span[data-automation-id='bodyRow']").Text())
 			if price == "" {
 				price = "0,-"
